@@ -2,7 +2,7 @@
 
 > **Um exército de agentes de IA especializados que escreve, corrige, analisa e documenta testes para o seu projeto .NET — do zero, em minutos, sem você tocar em uma linha.**
 
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Microsoft.Extensions.AI](https://img.shields.io/badge/Microsoft.Extensions.AI-9.3.0_preview-0078D4?logo=microsoft)](https://devblogs.microsoft.com/dotnet/introducing-microsoft-extensions-ai-preview/)
 [![Semantic Kernel](https://img.shields.io/badge/Semantic_Kernel-1.30.0-5C2D91?logo=microsoft)](https://github.com/microsoft/semantic-kernel)
@@ -337,8 +337,8 @@ CLI           → entry point — orquestra via DI, não contém lógica
 ### Pré-requisitos
 
 ```bash
-# .NET 9 SDK
-dotnet --version  # >= 9.0
+# .NET 10 SDK
+dotnet --version  # >= 10.0
 
 # Ollama (para modelos locais)
 # https://ollama.ai
