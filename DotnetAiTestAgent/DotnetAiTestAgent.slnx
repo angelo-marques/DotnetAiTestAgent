@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Libraries/">
+    <Project Path="DotnetAiTestAgent.Application/DotnetAiTestAgent.Application.csproj" />
+    <Project Path="DotnetAiTestAgent.Domain/DotnetAiTestAgent.Domain.csproj" />
+    <Project Path="DotnetAiTestAgent.Infrastructure/DotnetAiTestAgent.Infrastructure.csproj" />
+  </Folder>
+  <Project Path="DotnetAiTestAgent.AppHost/DotnetAiTestAgent.AppHost.csproj" />
+  <Project Path="DotnetAiTestAgent.Cli/DotnetAiTestAgent.Cli.csproj" />
+  <Project Path="DotnetAiTestAgent.ServiceDefaults/DotnetAiTestAgent.ServiceDefaults.csproj" />
+</Solution>

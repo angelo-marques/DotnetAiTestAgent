@@ -1,0 +1,35 @@
+{
+  "llm": {
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434",
+    "models": {
+      "testWriter":         "falcon3:7b",
+      "fakeGenerator":      "falcon3:7b",
+      "compileFix":         "falcon3:7b",
+      "testDebug":          "falcon3:7b",
+      "logicAnalysis":      "falcon3:7b",
+      "qualityAnalysis":    "falcon3:7b",
+      "architectureReview": "falcon3:7b",
+      "reportGenerator":    "falcon3:7b"
+    }
+  },
+  "pipeline": {
+    "coverageThreshold": 80,
+    "mutationThreshold": 60,
+    "maxRetriesPerAgent": 3,
+    "parallelWorkers": 2,
+    "incrementalMode": true
+  },
+  "output": {
+    "testsFolder":    "tests",
+    "reportsFolder":  "ai-test-reports",
+    "fakesSubfolder": "Fakes"
+  },
+  "features": {
+    "mutationTesting":    true,
+    "architectureReview": true,
+    "generateFakes":      true,
+    "watchMode":          false,
+    "useMocks":           false
+  }
+}

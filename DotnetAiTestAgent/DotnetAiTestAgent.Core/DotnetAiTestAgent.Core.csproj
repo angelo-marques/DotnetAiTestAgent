@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+	  <LangVersion>latest</LangVersion>
+	  <RootNamespace>DotnetAiTestAgent.Core</RootNamespace>
+	  <NoWarn>$(NoWarn);MSBL001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotnetAiTestAgent.Application\DotnetAiTestAgent.Application.csproj" />
+    <ProjectReference Include="..\DotnetAiTestAgent.Domain\DotnetAiTestAgent.Domain.csproj" />
+  </ItemGroup>
+
+</Project>
