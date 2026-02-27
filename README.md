@@ -30,6 +30,7 @@
 9. Gerar **7 relatórios** em Markdown e JSON
 
 Tudo isso com **um único comando**.
+![2026-02-27 17-12-20](https://github.com/user-attachments/assets/a0738590-6f90-49e0-b666-bc8f9c33ef5d)
 
 ---
 
@@ -346,6 +347,9 @@ ollama pull falcon3:7b
 
 # Stryker.NET (mutation testing)
 dotnet tool install --global dotnet-stryker
+
+# ReportGenerator — relatório HTML de cobertura com drill-down por classe e linha
+dotnet tool install --global dotnet-reportgenerator-globaltool
 ```
 
 ### Build
