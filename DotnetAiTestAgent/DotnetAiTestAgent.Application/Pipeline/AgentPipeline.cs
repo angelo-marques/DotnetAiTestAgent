@@ -14,8 +14,18 @@ namespace DotnetAiTestAgent.Application.Pipeline;
 /// sourcePath → onde estão os .cs a analisar
 /// outputPath → onde os testes gerados, fakes e relatórios serão escritos
 ///
-/// Os dois podem ser iguais (projeto monolito) ou diferentes
-/// (analisar src/, escrever em tests/).
+/// ETAPAS:
+///   [0/10] Scaffolding do projeto de testes (cria .csproj com xunit + coverlet SE não existir)
+///   [1/10] Descoberta de classes e interfaces via Roslyn
+///   [2/10] Geração de Fakes e FakeBuilders
+///   [3/10] Geração de testes xUnit AAA
+///   [4/10] Compilação + auto-correção
+///   [5/10] Execução e debug de testes
+///   [6/10] Loop de cobertura (XML + HTML via reportgenerator)
+///   [7/10] Mutation testing (Stryker.NET)
+///   [8/10] Análise de lógica
+///   [9/10] Análise de qualidade e arquitetura
+///   [10/10] Geração de relatórios Markdown + JSON
 /// </summary>
 public class AgentPipeline
 {
@@ -23,6 +33,7 @@ public class AgentPipeline
     private readonly AgentConfiguration _config;
     private readonly PipelineStateManager _stateManager;
     private readonly DotnetRunnerPlugin _dotnet;
+    private readonly TestProjectScaffolder _scaffolder;
     private readonly ILogger<AgentPipeline> _logger;
 
     public AgentPipeline(
@@ -30,25 +41,23 @@ public class AgentPipeline
         AgentConfiguration config,
         PipelineStateManager stateManager,
         DotnetRunnerPlugin dotnet,
+        TestProjectScaffolder scaffolder,
         ILogger<AgentPipeline> logger)
     {
         _runtime = runtime;
         _config = config;
         _stateManager = stateManager;
         _dotnet = dotnet;
+        _scaffolder = scaffolder;
         _logger = logger;
     }
 
-    /// <param name="options">Opções do pipeline (threshold, workers, etc.)</param>
-    /// <param name="sourcePath">Pasta do código-fonte a analisar.</param>
-    /// <param name="outputPath">Pasta de destino dos testes e relatórios. Se null, usa sourcePath.</param>
     public async Task RunAsync(
         PipelineOptions options,
         string sourcePath,
         string? outputPath = null,
         CancellationToken ct = default)
     {
-        // Se outputPath não for informado, usa a própria sourcePath (comportamento anterior)
         outputPath ??= sourcePath;
 
         var id = Guid.NewGuid().ToString();
@@ -65,6 +74,10 @@ public class AgentPipeline
 
         try
         {
+            // [0] Scaffolding ANTES de qualquer geração de .cs
+            // Garante que o .csproj de testes com xunit + coverlet existe
+            await StepScaffoldAsync(context, ct);
+
             await StepDiscoverAsync(context, id, ct);
             await StepGenerateFakesAsync(context, id, ct);
             await StepGenerateTestsAsync(context, id, new(), ct);
@@ -81,6 +94,8 @@ public class AgentPipeline
             _logger.LogInformation("✅ Concluído! Cobertura: {C:F1}% | Mutation: {M:F1}%",
                 context.CurrentCoverage, context.MutationScore);
             _logger.LogInformation("📁 Testes gerados em: {O}", outputPath);
+            _logger.LogInformation("📊 Relatório HTML:    {H}",
+                Path.Combine(outputPath, "ai-test-reports", "coverage-html", "index.html"));
         }
         catch (Exception ex)
         {
@@ -91,6 +106,16 @@ public class AgentPipeline
     }
 
     // ── Etapas ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// [0/10] Cria o projeto de testes (outputPath/tests/*.csproj) se não existir.
+    /// Esta etapa é idempotente — seguro chamar múltiplas vezes.
+    /// </summary>
+    private async Task StepScaffoldAsync(AgentContext ctx, CancellationToken ct)
+    {
+        _logger.LogInformation("[0/10] Preparando projeto de testes em {O}/tests...", ctx.OutputPath);
+        await _scaffolder.EnsureTestProjectAsync(ctx.SourcePath, ctx.OutputPath);
+    }
 
     private async Task StepDiscoverAsync(AgentContext ctx, string id, CancellationToken ct)
     {
@@ -106,7 +131,6 @@ public class AgentPipeline
         if (!_config.Features.GenerateFakes) return;
         _logger.LogInformation("[2/10] Gerando Fakes e FakeBuilders em {O}/Fakes...", ctx.OutputPath);
         var r = await _runtime.SendAsync<GenerateFakesRequest, FakesGeneratedResponse>(
-            // Passa OutputPath: os fakes são escritos no destino, não na source
             new GenerateFakesRequest(ctx.OutputPath, ctx.DiscoveredInterfaces) { CorrelationId = id }, ct);
         ctx.GeneratedFakes = r.GeneratedFakes;
     }
@@ -118,7 +142,6 @@ public class AgentPipeline
     {
         _logger.LogInformation("[3/10] Gerando testes xUnit em {O}...", ctx.OutputPath);
         var r = await _runtime.SendAsync<GenerateTestsRequest, TestsGeneratedResponse>(
-            // Passa OutputPath: os testes são escritos no destino
             new GenerateTestsRequest(ctx.OutputPath, ctx.DiscoveredClasses, gaps) { CorrelationId = id }, ct);
         ctx.GeneratedTests = r.GeneratedTests;
     }
@@ -146,6 +169,8 @@ public class AgentPipeline
         AgentContext ctx, string id, PipelineOptions opts, CancellationToken ct)
     {
         _logger.LogInformation("[6/10] Analisando cobertura (alvo {T}%)...", opts.CoverageThreshold);
+
+        // Primeira execução com cobertura — gera XML + HTML
         await _dotnet.RunTestsWithCoverageAsync(ctx.OutputPath);
 
         for (int i = 1; i <= opts.MaxRetriesPerAgent; i++)
@@ -170,6 +195,8 @@ public class AgentPipeline
                 ctx.CoverageGaps = r.Gaps;
                 await StepGenerateTestsAsync(ctx, id, r.Gaps, ct);
                 await StepCompileAsync(ctx, id, maxRetries: 2, ct);
+
+                // Roda novamente — HTML é regenerado automaticamente pelo plugin
                 await _dotnet.RunTestsWithCoverageAsync(ctx.OutputPath);
             }
         }
@@ -180,7 +207,6 @@ public class AgentPipeline
         if (!_config.Features.MutationTesting) return;
         _logger.LogInformation("[7/10] Mutation testing (Stryker.NET)...");
         var r = await _runtime.SendAsync<RunMutationRequest, MutationResultResponse>(
-            // Stryker roda na pasta de testes (OutputPath)
             new RunMutationRequest(ctx.OutputPath) { CorrelationId = id }, ct);
         ctx.MutationScore = r.Score;
     }
@@ -189,7 +215,6 @@ public class AgentPipeline
     {
         _logger.LogInformation("[8/10] Analisando lógica em {S}...", ctx.SourcePath);
         var r = await _runtime.SendAsync<AnalyzeLogicRequest, LogicAnalysisResponse>(
-            // Análise de lógica é sempre na source — não nos testes gerados
             new AnalyzeLogicRequest(ctx.SourcePath, ctx.DiscoveredClasses) { CorrelationId = id }, ct);
         ctx.LogicIssues.AddRange(r.Issues);
     }

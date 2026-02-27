@@ -1,16 +1,20 @@
 {
+  "paths": {
+    "sourcePath": "C:\\RunTest\\MeuProjeto\\src",
+    "outputPath": "C:\\RunTest\\MeuProjeto\\tests-gerados"
+  },
   "llm": {
     "provider": "ollama",
     "baseUrl": "http://localhost:11434",
     "models": {
-      "testWriter":         "falcon3:7b",
-      "fakeGenerator":      "falcon3:7b",
-      "compileFix":         "falcon3:7b",
-      "testDebug":          "falcon3:7b",
-      "logicAnalysis":      "falcon3:7b",
-      "qualityAnalysis":    "falcon3:7b",
+      "testWriter": "falcon3:7b",
+      "fakeGenerator": "falcon3:7b",
+      "compileFix": "falcon3:7b",
+      "testDebug": "falcon3:7b",
+      "logicAnalysis": "falcon3:7b",
+      "qualityAnalysis": "falcon3:7b",
       "architectureReview": "falcon3:7b",
-      "reportGenerator":    "falcon3:7b"
+      "reportGenerator": "falcon3:7b"
     }
   },
   "pipeline": {
@@ -21,15 +25,15 @@
     "incrementalMode": true
   },
   "output": {
-    "testsFolder":    "tests",
-    "reportsFolder":  "ai-test-reports",
+    "testsFolder": "tests",
+    "reportsFolder": "ai-test-reports",
     "fakesSubfolder": "Fakes"
   },
   "features": {
-    "mutationTesting":    true,
+    "mutationTesting": true,
     "architectureReview": true,
-    "generateFakes":      true,
-    "watchMode":          false,
-    "useMocks":           false
+    "generateFakes": true,
+    "watchMode": false,
+    "useMocks": false
   }
 }

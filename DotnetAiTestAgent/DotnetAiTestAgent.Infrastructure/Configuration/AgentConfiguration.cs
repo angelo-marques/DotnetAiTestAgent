@@ -1,6 +1,5 @@
 namespace DotnetAiTestAgent.Infrastructure.Configuration;
 
-
 /// <summary>
 /// Configuração completa lida do ai-test-agent.json.
 /// Cada propriedade aqui corresponde a uma chave no JSON —
@@ -8,10 +7,45 @@ namespace DotnetAiTestAgent.Infrastructure.Configuration;
 /// </summary>
 public class AgentConfiguration
 {
+    public PathsConfig Paths { get; set; } = new();
     public LlmConfig Llm { get; set; } = new();
     public PipelineConfig Pipeline { get; set; } = new();
     public OutputConfig Output { get; set; } = new();
     public FeatureFlags Features { get; set; } = new();
+}
+
+/// <summary>
+/// Caminhos de origem e destino configurados no JSON.
+/// Servem como fallback quando --source / --output não são passados na CLI.
+///
+/// Prioridade de resolução:
+///   1. Argumento CLI  (--source, --output)       ← maior prioridade
+///   2. Variável de ambiente (AITA_SOURCE, AITA_OUTPUT)
+///   3. ai-test-agent.json → seção "paths"        ← fallback padrão
+///
+/// Suporta caminhos relativos — serão resolvidos a partir do diretório
+/// onde o ai-test-agent.json está localizado (Directory.GetCurrentDirectory()).
+///
+/// Exemplos válidos no JSON:
+///   "sourcePath": "C:\\Projetos\\MinhaApi\\src"        (absoluto Windows)
+///   "sourcePath": "/home/user/projetos/MinhaApi/src"  (absoluto Linux/Mac)
+///   "sourcePath": "../MinhaApi/src"                   (relativo ao cwd)
+///   "sourcePath": ""                                  (não configurado — CLI obrigatória)
+/// </summary>
+public class PathsConfig
+{
+    /// <summary>
+    /// Pasta raiz do código-fonte a ser analisado (onde estão os .cs).
+    /// Equivalente ao --source da CLI.
+    /// </summary>
+    public string SourcePath { get; set; } = "";
+
+    /// <summary>
+    /// Pasta de destino onde testes, fakes e relatórios serão escritos.
+    /// Equivalente ao --output da CLI.
+    /// Se vazio, usa o mesmo valor de SourcePath.
+    /// </summary>
+    public string OutputPath { get; set; } = "";
 }
 
 public class LlmConfig
@@ -43,7 +77,7 @@ public class PipelineConfig
     public int CoverageThreshold { get; set; } = 80;
     public int MutationThreshold { get; set; } = 60;
     public int MaxRetriesPerAgent { get; set; } = 3;
-    public int ParallelWorkers { get; set; } = 2;   // conservador para 7b local
+    public int ParallelWorkers { get; set; } = 2;
     public bool IncrementalMode { get; set; } = true;
 }
 
