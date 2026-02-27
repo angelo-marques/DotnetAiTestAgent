@@ -51,20 +51,32 @@ public class ProjectWatcher
     public ProjectWatcher(AgentPipeline pipeline, ILogger<ProjectWatcher> logger)
     {
         _pipeline = pipeline;
-        _logger   = logger;
+        _logger = logger;
     }
 
-    public async Task StartAsync(string projectPath, CancellationToken ct = default)
+    /// <param name="sourcePath">Pasta monitorada (onde estão os .cs).</param>
+    /// <param name="outputPath">Pasta de saída dos testes. Se null, usa sourcePath.</param>
+    /// <param name="ct">Token de cancelamento — Ctrl+C encerra o watcher.</param>
+    public async Task StartAsync(
+        string sourcePath,
+        string? outputPath = null,
+        CancellationToken ct = default)
     {
-        _logger.LogInformation("👁 Watch mode em: {P} | Ctrl+C para encerrar", projectPath);
+        outputPath ??= sourcePath;
 
-        using var watcher = new FileSystemWatcher(projectPath, "*.cs")
+        _logger.LogInformation("👁 Watch mode");
+        _logger.LogInformation("  📂 Monitorando: {S}", sourcePath);
+        _logger.LogInformation("  📁 Saída:       {O}", outputPath);
+        _logger.LogInformation("  Ctrl+C para encerrar");
+
+        using var watcher = new FileSystemWatcher(sourcePath, "*.cs")
         {
             IncludeSubdirectories = true,
-            NotifyFilter          = NotifyFilters.LastWrite | NotifyFilters.FileName
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
         };
 
         System.Threading.Timer? debounce = null;
+        var capturedOutput = outputPath;
 
         watcher.Changed += Trigger;
         watcher.Created += Trigger;
@@ -79,16 +91,15 @@ public class ProjectWatcher
             debounce?.Dispose();
             debounce = new System.Threading.Timer(async _ =>
             {
-                _logger.LogInformation("🔄 Alteração detectada: {F}", Path.GetFileName(e.FullPath));
+                _logger.LogInformation("🔄 Alteração: {F}", Path.GetFileName(e.FullPath));
                 await _pipeline.RunAsync(
                     new PipelineOptions { IncrementalMode = true },
-                    projectPath);
+                    sourcePath, capturedOutput, ct);
             }, null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
         }
 
         static bool IsIgnored(string path) =>
-            path.Contains($"{Path.DirectorySeparatorChar}tests{Path.DirectorySeparatorChar}") ||
-            path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")   ||
+            path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") ||
             path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}");
     }
 }

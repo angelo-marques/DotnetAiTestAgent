@@ -50,9 +50,9 @@ try
     {
         return await root.Parse(args).InvokeAsync();
     }
-
+    builder.AddServiceDefaults();
     var app = builder.Build();
-
+   
     app.UseSerilogRequestLogging(opts =>
     {
         opts.MessageTemplate = "HTTP {RequestMethod} {RequestPath} → {StatusCode} ({Elapsed:0.000}ms)";
@@ -63,6 +63,9 @@ try
         };
     });
 
+    app.MapDefaultEndpoints();
+
+    app.MapGet("/", () => "Hello World!");
     app.UseRouting();
     app.MapControllers();
 
