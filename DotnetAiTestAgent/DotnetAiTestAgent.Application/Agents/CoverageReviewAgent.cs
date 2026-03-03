@@ -2,12 +2,12 @@ using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Messages.Requests;
 using DotnetAiTestAgent.Domain.Messages.Responses;
 using DotnetAiTestAgent.Domain.ValueObjects;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace DotnetAiTestAgent.Application.Agents;
-
 /// <summary>
 /// Parseia o relatório XML do coverlet e identifica gaps de cobertura.
 /// Prioriza gaps por severidade (cobertura abaixo de 40% = High, até 80% = Medium)
@@ -22,10 +22,11 @@ public class CoverageReviewAgent : BaseAgent<ReviewCoverageRequest, CoverageResu
 
     public CoverageReviewAgent(
         IChatClient chat,
+        PromptRepository prompts,
         CoverageParserPlugin parser,
         FileSystemPlugin fileSystem,
         ILogger<CoverageReviewAgent> logger)
-        : base(chat, logger)
+        : base(chat, prompts, logger)
     {
         _parser = parser;
         _fileSystem = fileSystem;

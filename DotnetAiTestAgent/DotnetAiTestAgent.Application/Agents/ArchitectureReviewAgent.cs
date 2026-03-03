@@ -1,10 +1,11 @@
-using System.Text.Json;
 using DotnetAiTestAgent.Application.Abstractions;
-using DotnetAiTestAgent.Domain.Entities;
 using DotnetAiTestAgent.Application.Messages.Requests;
+using DotnetAiTestAgent.Domain.Entities;
 using DotnetAiTestAgent.Domain.Messages.Responses;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DotnetAiTestAgent.Application.Agents;
 
@@ -17,8 +18,8 @@ public class ArchitectureReviewAgent : BaseAgent<ReviewArchitectureRequest, Arch
 {
     public override string Name => "ArchitectureReviewAgent";
 
-    public ArchitectureReviewAgent(IChatClient chat, ILogger<ArchitectureReviewAgent> logger)
-        : base(chat, logger) { }
+    public ArchitectureReviewAgent(IChatClient chat, PromptRepository prompts, ILogger<ArchitectureReviewAgent> logger)
+        : base(chat, prompts, logger) { }
 
     public override async Task<ArchitectureReviewResponse> HandleAsync(
         ReviewArchitectureRequest request, AgentThread thread, CancellationToken ct = default)
@@ -32,7 +33,7 @@ public class ArchitectureReviewAgent : BaseAgent<ReviewArchitectureRequest, Arch
             c.CyclomaticComplexity
         });
 
-        var json   = await CompleteAsync(SystemPrompt,
+        var json = await CompleteAsync(Prompts.GetSystem(Name),
             JsonSerializer.Serialize(graph, new JsonSerializerOptions { WriteIndented = true }),
             thread, ct);
 
@@ -41,26 +42,4 @@ public class ArchitectureReviewAgent : BaseAgent<ReviewArchitectureRequest, Arch
         Logger.LogInformation("[{A}] {N} problemas de arquitetura encontrados", Name, issues.Count);
         return new ArchitectureReviewResponse(issues);
     }
-
-    private const string SystemPrompt = """
-        Analise o grafo de dependências de um projeto .NET e identifique:
-
-        - Dependências circulares (A → B → A)
-        - Violações de camadas (ex: Infrastructure referenciando Domain diretamente)
-        - Acoplamento excessivo (classe com mais de 7 dependências diretas)
-        - Componentes instáveis dependendo de componentes estáveis
-
-        Retorne JSON APENAS (sem markdown):
-        [
-          {
-            "issueType": "CircularDep|LayerViolation|HighCoupling|InstabilityViolation",
-            "description": "descrição clara do problema",
-            "fromComponent": "NomeClasseOuNamespace",
-            "toComponent": "NomeClasseOuNamespace",
-            "severity": "Low|Medium|High|Critical",
-            "suggestion": "como resolver"
-          }
-        ]
-        Retorne [] se a arquitetura estiver saudável.
-        """;
 }
