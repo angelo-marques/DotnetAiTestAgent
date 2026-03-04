@@ -1,6 +1,7 @@
 using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Messages.Requests;
 using DotnetAiTestAgent.Domain.Messages.Responses;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -19,8 +20,8 @@ public class MutationTestAgent : BaseAgent<RunMutationRequest, MutationResultRes
 
     public override string Name => "MutationTestAgent";
 
-    public MutationTestAgent(IChatClient chat, StrykerPlugin stryker, ILogger<MutationTestAgent> logger)
-        : base(chat, logger) => _stryker = stryker;
+    public MutationTestAgent(IChatClient chat, PromptRepository prompts, StrykerPlugin stryker, ILogger<MutationTestAgent> logger)
+        : base(chat, prompts, logger) => _stryker = stryker;
 
     public override async Task<MutationResultResponse> HandleAsync(
         RunMutationRequest request, AgentThread thread, CancellationToken ct = default)
@@ -28,7 +29,7 @@ public class MutationTestAgent : BaseAgent<RunMutationRequest, MutationResultRes
         Logger.LogInformation("[{A}] Executando Stryker.NET (pode demorar alguns minutos)...", Name);
 
         var scoreStr = await _stryker.RunAsync(request.ProjectPath);
-        var score    = double.TryParse(scoreStr,
+        var score = double.TryParse(scoreStr,
             System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 0.0;
 

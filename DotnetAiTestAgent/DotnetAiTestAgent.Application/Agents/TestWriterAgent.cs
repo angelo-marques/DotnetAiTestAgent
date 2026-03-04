@@ -2,11 +2,13 @@ using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Messages.Requests;
 using DotnetAiTestAgent.Domain.Messages.Responses;
 using DotnetAiTestAgent.Domain.ValueObjects;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace DotnetAiTestAgent.Application.Agents;
+
 
 /// <summary>
 /// Gera testes xUnit para cada classe pública usando os Fakes gerados.
@@ -20,8 +22,8 @@ public class TestWriterAgent : BaseAgent<GenerateTestsRequest, TestsGeneratedRes
 
     public override string Name => "TestWriterAgent";
 
-    public TestWriterAgent(IChatClient chat, FileSystemPlugin fileSystem, ILogger<TestWriterAgent> logger)
-        : base(chat, logger) => _fileSystem = fileSystem;
+    public TestWriterAgent(IChatClient chat, PromptRepository prompts, FileSystemPlugin fileSystem, ILogger<TestWriterAgent> logger)
+        : base(chat, prompts, logger) => _fileSystem = fileSystem;
 
     public override async Task<TestsGeneratedResponse> HandleAsync(
         GenerateTestsRequest request, AgentThread thread, CancellationToken ct = default)
@@ -46,7 +48,7 @@ public class TestWriterAgent : BaseAgent<GenerateTestsRequest, TestsGeneratedRes
                 var classThread = new AgentThread();
                 var gapHint = BuildGapHint(cls.ClassName, request.Gaps);
 
-                var code = await CompleteAsync(SystemPrompt, BuildUserPrompt(cls.SourceCode, gapHint), classThread, token);
+                var code = await CompleteAsync(Prompts.GetSystem(Name), BuildUserPrompt(cls.SourceCode, gapHint), classThread, token);
                 var fileName = $"{cls.ClassName}Tests.cs";
 
                 await _fileSystem.WriteTestFileAsync(fileName, code);
@@ -73,18 +75,4 @@ public class TestWriterAgent : BaseAgent<GenerateTestsRequest, TestsGeneratedRes
     private static string BuildUserPrompt(string sourceCode, string gapHint) =>
         $"Classe a testar:\n```csharp\n{sourceCode}\n```{gapHint}";
 
-    private const string SystemPrompt = """
-        Você é especialista em TDD para .NET.
-
-        REGRAS:
-        - Framework: xUnit
-        - Padrão obrigatório: AAA (Arrange / Act / Assert) com comentários de seção
-        - NUNCA use Moq, NSubstitute ou qualquer mock framework
-        - USE os Fakes gerados (FakeXxx) para simular dependências
-        - USE FakeBuilders com Bogus para dados realistas no Arrange
-        - Por método público gere: happy path + edge case + exception case
-        - Nome dos testes: MetodoTestado_Cenario_ResultadoEsperado
-        - Adicione // INTENT: <por que esse teste existe> acima de cada [Fact]
-        - Retorne APENAS código C# compilável, sem markdown
-        """;
 }

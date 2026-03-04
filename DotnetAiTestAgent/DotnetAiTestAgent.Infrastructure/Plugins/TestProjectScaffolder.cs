@@ -42,7 +42,7 @@ public class TestProjectScaffolder
     /// <param name="outputPath">Pasta de saída onde o projeto de testes será criado.</param>
     public async Task EnsureTestProjectAsync(string sourcePath, string outputPath)
     {
-        var testsDir   = Path.Combine(outputPath, "tests");
+        var testsDir = Path.Combine(outputPath, "tests");
         var sourceInfo = DiscoverSourceProject(sourcePath);
         var csprojName = $"{sourceInfo.ProjectName}.Tests.csproj";
         var csprojPath = Path.Combine(testsDir, csprojName);
@@ -100,8 +100,7 @@ public class TestProjectScaffolder
     /// <summary>
     /// Escreve o .csproj de testes com todas as dependências necessárias:
     ///   - xunit (framework de testes)
-    ///   - coverlet.collector (coleta de cobertura via --collect)
-    ///   - coverlet.msbuild (alternativa MSBuild para cobertura)
+    ///   - coverlet.collector (coleta de cobertura via --collect:"XPlat Code Coverage")
     ///   - Microsoft.NET.Test.Sdk (runner do dotnet test)
     ///   - xunit.runner.visualstudio (integração com IDEs)
     ///   - ProjectReference para o projeto-fonte
@@ -139,12 +138,9 @@ public class TestProjectScaffolder
         csproj.AppendLine("      <PrivateAssets>all</PrivateAssets>");
         csproj.AppendLine("    </PackageReference>");
         csproj.AppendLine();
-        csproj.AppendLine("    <!-- Coverlet: coleta de cobertura -->");
+        csproj.AppendLine("    <!-- Coverlet: coleta de cobertura via XPlat Code Coverage -->");
+        csproj.AppendLine("    <!-- ATENCAO: use SOMENTE coverlet.collector, nunca com coverlet.msbuild -->");
         csproj.AppendLine("    <PackageReference Include=\"coverlet.collector\"            Version=\"6.0.4\"  >");
-        csproj.AppendLine("      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>");
-        csproj.AppendLine("      <PrivateAssets>all</PrivateAssets>");
-        csproj.AppendLine("    </PackageReference>");
-        csproj.AppendLine("    <PackageReference Include=\"coverlet.msbuild\"              Version=\"6.0.4\"  >");
         csproj.AppendLine("      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>");
         csproj.AppendLine("      <PrivateAssets>all</PrivateAssets>");
         csproj.AppendLine("    </PackageReference>");
@@ -194,9 +190,9 @@ public class TestProjectScaffolder
             var psi = new ProcessStartInfo("reportgenerator", "--version")
             {
                 RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
             using var p = Process.Start(psi);
             if (p is null) throw new Exception();

@@ -5,18 +5,15 @@ namespace DotnetAiTestAgent.Infrastructure.Plugins;
 /// <summary>
 /// Executa comandos dotnet (build, test, test com cobertura) e reportgenerator (HTML).
 ///
-/// FLUXO DE COBERTURA:
-///   RunTestsWithCoverageAsync
-///     → dotnet test --collect:"XPlat Code Coverage"
-///     → gera TestResults/{guid}/coverage.cobertura.xml
-///     → chama GenerateHtmlReportAsync automaticamente
-///
-///   GenerateHtmlReportAsync
-///     → reportgenerator -reports:*.xml -targetdir:ai-test-reports/coverage-html
-///     → gera index.html navegável com detalhe por classe e linha
-///
-/// PRÉ-REQUISITO (instalar uma vez):
-///   dotnet tool install --global dotnet-reportgenerator-globaltool
+/// FLUXO COMPLETO DE COBERTURA:
+///   RunTestsWithCoverageAsync(outputPath)
+///     1. Localiza o .csproj de testes em outputPath/tests/
+///     2. dotnet restore   (garante coverlet nos pacotes)
+///     3. dotnet build     (compila — log de erro visível se falhar)
+///     4. dotnet test --collect:"XPlat Code Coverage"
+///        → gera: outputPath/tests/TestResults/{guid}/coverage.cobertura.xml
+///     5. GenerateHtmlReportAsync
+///        → gera: outputPath/ai-test-reports/coverage-html/index.html
 /// </summary>
 public class DotnetRunnerPlugin
 {
@@ -29,41 +26,89 @@ public class DotnetRunnerPlugin
         _logger = logger;
     }
 
+    // ── Build ──────────────────────────────────────────────────────────────────
+
     public Task<string> BuildAsync(string projectPath)
     {
         var target = FindCsproj(projectPath, preferTests: true) ?? projectPath;
         return RunAsync("dotnet", $"build \"{target}\" --no-restore -v minimal");
     }
 
+    // ── Testes simples (sem cobertura) ────────────────────────────────────────
+
     public Task<string> RunTestsAsync(string projectPath)
     {
         var target = FindCsproj(projectPath, preferTests: true) ?? projectPath;
-        return RunAsync("dotnet", $"test \"{target}\" --no-build -v normal");
+        // Sem --no-build: garante que o projeto compila antes de rodar os testes
+        return RunAsync("dotnet", $"test \"{target}\" -v normal");
     }
+
+    // ── Testes com cobertura (XML + HTML) ─────────────────────────────────────
 
     public async Task<string> RunTestsWithCoverageAsync(string outputPath)
     {
         var testsDir = Path.Combine(outputPath, "tests");
-        var target = FindCsproj(testsDir, preferTests: true) ?? testsDir;
+        var target = FindCsproj(testsDir, preferTests: true);
         var resultsDir = Path.Combine(testsDir, "TestResults");
+
+        if (target is null)
+        {
+            _logger.LogError(
+                "Nenhum .csproj encontrado em {D}. " +
+                "O TestProjectScaffolder deve ter criado o projeto antes desta etapa.",
+                testsDir);
+            return string.Empty;
+        }
 
         Directory.CreateDirectory(resultsDir);
 
-        _logger.LogDebug("Rodando testes com cobertura: {T}", target);
+        _logger.LogInformation("📦 restore: {T}", Path.GetFileName(target));
+        await RunWithLogAsync("dotnet", $"restore \"{target}\" -v minimal");
 
-        await RunAsync("dotnet", $"restore \"{target}\" -v minimal");
+        _logger.LogInformation("🔨 build: {T}", Path.GetFileName(target));
+        var buildOut = await RunWithLogAsync("dotnet", $"build \"{target}\" -v minimal");
 
-        var result = await RunAsync("dotnet",
+        if (buildOut.Contains("Error") || buildOut.Contains("FAILED"))
+        {
+            _logger.LogError(
+                "Build do projeto de testes falhou — cobertura não será coletada.\n{O}",
+                buildOut);
+            return buildOut;
+        }
+
+        _logger.LogInformation("🧪 test com cobertura: {T}", Path.GetFileName(target));
+        var testOut = await RunWithLogAsync("dotnet",
             $"test \"{target}\" " +
+            $"--no-build " +
             $"--collect:\"XPlat Code Coverage\" " +
             $"--results-directory \"{resultsDir}\" " +
             $"-- DataCollectionRunSettings.DataCollectors.DataCollector" +
             $".Configuration.Format=cobertura");
 
-        await GenerateHtmlReportAsync(outputPath);
+        // Verifica se o XML foi gerado
+        var xmlFiles = Directory
+            .GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ToList();
 
-        return result;
+        if (!xmlFiles.Any())
+        {
+            _logger.LogWarning(
+                "coverage.cobertura.xml não gerado em {R}.\n" +
+                "Verifique se o .csproj tem coverlet.collector instalado.\n" +
+                "Saída do dotnet test:\n{O}",
+                resultsDir, testOut);
+        }
+        else
+        {
+            _logger.LogDebug("✓ coverage XML: {F}", xmlFiles[0]);
+            await GenerateHtmlReportAsync(outputPath);
+        }
+
+        return testOut;
     }
+
+    // ── Relatório HTML ────────────────────────────────────────────────────────
 
     public async Task<string> GenerateHtmlReportAsync(string outputPath)
     {
@@ -84,12 +129,11 @@ public class DotnetRunnerPlugin
 
         var reports = string.Join(";", xmlFiles.Select(f => $"\"{f}\""));
         var htmlDir = Path.Combine(outputPath, "ai-test-reports", "coverage-html");
-
         Directory.CreateDirectory(htmlDir);
 
         _logger.LogInformation("📊 Gerando relatório HTML em: {D}", htmlDir);
 
-        var result = await RunAsync("reportgenerator",
+        var result = await RunWithLogAsync("reportgenerator",
             $"-reports:{reports} " +
             $"-targetdir:\"{htmlDir}\" " +
             $"-reporttypes:Html;HtmlSummary;Badges;TextSummary;Cobertura " +
@@ -102,20 +146,20 @@ public class DotnetRunnerPlugin
             _logger.LogInformation("✅ Relatório HTML: {F}", indexHtml);
             var summary = Path.Combine(htmlDir, "Summary.txt");
             if (File.Exists(summary))
-            {
-                var text = await File.ReadAllTextAsync(summary);
-                _logger.LogInformation("--- Resumo de Cobertura ---\n{S}", text.Trim());
-            }
+                _logger.LogInformation("--- Resumo ---\n{S}",
+                    (await File.ReadAllTextAsync(summary)).Trim());
         }
         else
         {
             _logger.LogWarning(
-                "⚠️  reportgenerator não gerou o HTML. " +
+                "reportgenerator não gerou index.html.\n" +
                 "Instale com: dotnet tool install --global dotnet-reportgenerator-globaltool");
         }
 
         return result;
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private string? FindCsproj(string dir, bool preferTests)
     {
@@ -154,7 +198,11 @@ public class DotnetRunnerPlugin
         return all[0];
     }
 
-    private async Task<string> RunAsync(string command, string arguments)
+    /// <summary>
+    /// RunAsync com log de erro visível (Warning) quando ExitCode != 0.
+    /// Substitui o RunAsync anterior que só logava em Debug.
+    /// </summary>
+    private async Task<string> RunWithLogAsync(string command, string arguments)
     {
         _logger.LogDebug("$ {Cmd} {Args}", command, arguments);
 
@@ -168,17 +216,25 @@ public class DotnetRunnerPlugin
         };
 
         using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Falha ao iniciar: {command} {arguments}");
+            ?? throw new InvalidOperationException($"Falha ao iniciar: {command}");
 
         var stdout = await process.StandardOutput.ReadToEndAsync();
         var stderr = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
 
-        if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
-            _logger.LogDebug("STDERR [{Cmd}]: {E}", command, stderr.Trim());
-
-        return string.IsNullOrWhiteSpace(stderr)
+        var combined = string.IsNullOrWhiteSpace(stderr)
             ? stdout
             : $"{stdout}\n--- STDERR ---\n{stderr}";
+
+        // Log visível (Warning) quando o processo falha — antes só era Debug
+        if (process.ExitCode != 0)
+            _logger.LogWarning("[{Cmd}] ExitCode={Code}\n{Out}",
+                command, process.ExitCode, combined.Trim());
+
+        return combined;
     }
+
+    // Mantém compatibilidade com o nome antigo
+    private Task<string> RunAsync(string command, string arguments) =>
+        RunWithLogAsync(command, arguments);
 }

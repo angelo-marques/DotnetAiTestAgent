@@ -1,12 +1,14 @@
-using System.Text.Json;
 using DotnetAiTestAgent.Application.Abstractions;
-using DotnetAiTestAgent.Domain.Entities;
 using DotnetAiTestAgent.Application.Messages.Requests;
+using DotnetAiTestAgent.Domain.Entities;
 using DotnetAiTestAgent.Domain.Messages.Responses;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DotnetAiTestAgent.Application.Agents;
+
 
 /// <summary>
 /// Analisa falhas de testes em runtime e as classifica:
@@ -19,8 +21,8 @@ public class TestDebugAgent : BaseAgent<DebugTestsRequest, TestsResultResponse>
 {
     public override string Name => "TestDebugAgent";
 
-    public TestDebugAgent(IChatClient chat, ILogger<TestDebugAgent> logger)
-        : base(chat, logger) { }
+    public TestDebugAgent(IChatClient chat, PromptRepository prompts, ILogger<TestDebugAgent> logger)
+        : base(chat, prompts, logger) { }
 
     public override async Task<TestsResultResponse> HandleAsync(
         DebugTestsRequest request, AgentThread thread, CancellationToken ct = default)
@@ -30,10 +32,10 @@ public class TestDebugAgent : BaseAgent<DebugTestsRequest, TestsResultResponse>
             Logger.LogInformation("[{A}] ✓ Todos os testes passaram", Name);
             return new TestsResultResponse(true, request.TestOutput, new());
         }
-
+        
         Logger.LogWarning("[{A}] Analisando falhas (tentativa {R})", Name, thread.RetryCount + 1);
 
-        var analysisJson = await CompleteAsync(SystemPrompt,
+        var analysisJson = await CompleteAsync(Prompts.GetSystem(Name),
             $"OUTPUT DOS TESTES:\n{request.TestOutput}", thread, ct);
 
         return ParseAnalysis(analysisJson, request.TestOutput);
@@ -43,8 +45,8 @@ public class TestDebugAgent : BaseAgent<DebugTestsRequest, TestsResultResponse>
     {
         try
         {
-            using var doc      = JsonDocument.Parse(json);
-            var logicIssues    = doc.RootElement.TryGetProperty("logicIssues", out var el)
+            using var doc = JsonDocument.Parse(json);
+            var logicIssues = doc.RootElement.TryGetProperty("logicIssues", out var el)
                 ? JsonSerializer.Deserialize<List<LogicIssue>>(el.GetRawText()) ?? new()
                 : new List<LogicIssue>();
 
@@ -57,19 +59,5 @@ public class TestDebugAgent : BaseAgent<DebugTestsRequest, TestsResultResponse>
         }
     }
 
-    private const string SystemPrompt = """
-        Analise falhas de testes .NET e classifique cada uma:
-
-        BUG_NO_TESTE    → problema na escrita do teste (asserção errada, setup incorreto)
-        BUG_NA_APLICACAO → bug real no código de produção (lógica incorreta, null ref, etc.)
-
-        Para BUG_NO_TESTE: inclua em "fixes" a correção do teste
-        Para BUG_NA_APLICACAO: inclua em "logicIssues" para o relatório
-
-        Retorne JSON APENAS (sem markdown):
-        {
-          "fixes": [{"file":"...","oldCode":"...","newCode":"..."}],
-          "logicIssues": [{"className":"...","methodName":"...","description":"...","severity":"High|Medium|Low"}]
-        }
-        """;
 }
+

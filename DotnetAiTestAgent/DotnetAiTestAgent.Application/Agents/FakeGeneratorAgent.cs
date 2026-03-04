@@ -1,13 +1,12 @@
 using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Messages.Requests;
 using DotnetAiTestAgent.Domain.Messages.Responses;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace DotnetAiTestAgent.Application.Agents;
-
-
 /// <summary>
 /// Gera Fakes realistas para todas as interfaces do projeto.
 /// NUNCA usa Moq ou NSubstitute — implementações com estado interno real (List, Dictionary).
@@ -19,8 +18,8 @@ public class FakeGeneratorAgent : BaseAgent<GenerateFakesRequest, FakesGenerated
 
     public override string Name => "FakeGeneratorAgent";
 
-    public FakeGeneratorAgent(IChatClient chat, FileSystemPlugin fileSystem, ILogger<FakeGeneratorAgent> logger)
-        : base(chat, logger) => _fileSystem = fileSystem;
+    public FakeGeneratorAgent(IChatClient chat, PromptRepository prompts, FileSystemPlugin fileSystem, ILogger<FakeGeneratorAgent> logger)
+        : base(chat, prompts, logger) => _fileSystem = fileSystem;
 
     public override async Task<FakesGeneratedResponse> HandleAsync(
         GenerateFakesRequest request, AgentThread thread, CancellationToken ct = default)
@@ -34,7 +33,7 @@ public class FakeGeneratorAgent : BaseAgent<GenerateFakesRequest, FakesGenerated
             // Thread compartilhada entre interfaces: o modelo mantém consistência
             // de namespace e estilo entre os fakes gerados na mesma execução
             var response = await CompleteAsync(
-                system: SystemPrompt,
+                system: Prompts.GetSystem(Name),
                 user: $"Interface:\n```csharp\n{iface.SourceCode}\n```",
                 thread, ct);
 
@@ -57,17 +56,4 @@ public class FakeGeneratorAgent : BaseAgent<GenerateFakesRequest, FakesGenerated
         Logger.LogInformation("[{A}] {N} fakes gerados", Name, generated.Count);
         return new FakesGeneratedResponse(generated);
     }
-
-    private const string SystemPrompt = """
-        Você é especialista em testes .NET que cria Fakes realistas.
-
-        REGRAS ABSOLUTAS:
-        - NUNCA use Moq, NSubstitute ou qualquer mock framework
-        - Implemente a interface com estado interno real usando List<T> ou Dictionary
-        - Construtor: (IEnumerable<T>? seed = null) para dados iniciais opcionais
-        - Implemente TODOS os métodos da interface com lógica real
-        - Gere também um FakeBuilder usando a biblioteca Bogus para dados realistas
-        - Separe os dois arquivos com exatamente: ===SEPARATOR===
-        - Retorne APENAS código C# sem explicações, sem markdown
-        """;
 }

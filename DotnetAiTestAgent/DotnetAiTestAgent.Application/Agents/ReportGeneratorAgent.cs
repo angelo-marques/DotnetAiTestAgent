@@ -1,10 +1,11 @@
 using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Messages.Requests;
 using DotnetAiTestAgent.Application.Pipeline;
+using DotnetAiTestAgent.Application.Reports;
 using DotnetAiTestAgent.Domain.Enums;
 using DotnetAiTestAgent.Domain.Messages.Responses;
+using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
-using DotnetAiTestAgent.Application.Reports;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -23,9 +24,10 @@ public class ReportGeneratorAgent : BaseAgent<GenerateReportsRequest, ReportsGen
 
     public ReportGeneratorAgent(
         IChatClient chat,
+        PromptRepository prompts,
         FileSystemPlugin fileSystem,
         ILogger<ReportGeneratorAgent> logger)
-        : base(chat, logger) => _fileSystem = fileSystem;
+        : base(chat, prompts, logger) => _fileSystem = fileSystem;
 
     public override async Task<ReportsGeneratedResponse> HandleAsync(
         GenerateReportsRequest request, AgentThread thread, CancellationToken ct = default)

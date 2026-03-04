@@ -1,5 +1,3 @@
-using Azure;
-using Azure.AI.OpenAI;
 using DotnetAiTestAgent.Application.Abstractions;
 using DotnetAiTestAgent.Application.Agents;
 using DotnetAiTestAgent.Application.Pipeline;
@@ -7,14 +5,11 @@ using DotnetAiTestAgent.Application.Runtime;
 using DotnetAiTestAgent.Infrastructure.Configuration;
 using DotnetAiTestAgent.Infrastructure.Plugins;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using OpenAI;
-using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Serilog;
 
 namespace DotnetAiTestAgent.Cli.DependencyInjection;
+
 
 public static class ServiceCollectionExtensions
 {
@@ -99,6 +94,14 @@ public static class ServiceCollectionExtensions
             outputPath,
             sp.GetRequiredService<ILogger<DotnetRunnerPlugin>>()));
 
+        services.AddSingleton(sp => new ShellExecutorPlugin(
+            outputPath,
+            sp.GetRequiredService<ILogger<ShellExecutorPlugin>>()));
+
+        services.AddSingleton(sp => new AutoFixPlugin(
+            sp.GetRequiredService<ShellExecutorPlugin>(),
+            sp.GetRequiredService<ILogger<AutoFixPlugin>>()));
+
         services.AddSingleton(sp => new CoverageParserPlugin(
             sp.GetRequiredService<ILogger<CoverageParserPlugin>>()));
 
@@ -124,6 +127,8 @@ public static class ServiceCollectionExtensions
             var parser = sp.GetRequiredService<CoverageParserPlugin>();
             var stryker = sp.GetRequiredService<StrykerPlugin>();
             var config = sp.GetRequiredService<AgentConfiguration>();
+            var prompts = sp.GetRequiredService<PromptRepository>();
+            var autoFix = sp.GetRequiredService<AutoFixPlugin>();
             var m = config.Llm.Models;
 
             // Cada agente recebe o IChatClient com o modelo definido na config.
@@ -131,47 +136,47 @@ public static class ServiceCollectionExtensions
             // para o mesmo modelo — sem custo extra, permite trocar individualmente.
             return new AgentRuntime(lf.CreateLogger<AgentRuntime>())
                 .Register(new OrchestratorAgent(
-                    factory.Create(m.TestWriter), roslyn,
+                    factory.Create(m.TestWriter), prompts, roslyn,
                     lf.CreateLogger<OrchestratorAgent>()))
 
                 .Register(new FakeGeneratorAgent(
-                    factory.Create(m.FakeGenerator), fs,
+                    factory.Create(m.FakeGenerator), prompts, fs,
                     lf.CreateLogger<FakeGeneratorAgent>()))
 
                 .Register(new TestWriterAgent(
-                    factory.Create(m.TestWriter), fs,
+                    factory.Create(m.TestWriter), prompts, fs,
                     lf.CreateLogger<TestWriterAgent>()))
 
                 .Register(new CompileFixAgent(
-                    factory.Create(m.CompileFix), fs,
+                    factory.Create(m.CompileFix), prompts, fs, autoFix,
                     lf.CreateLogger<CompileFixAgent>()))
 
                 .Register(new TestDebugAgent(
-                    factory.Create(m.TestDebug),
+                    factory.Create(m.TestDebug), prompts,
                     lf.CreateLogger<TestDebugAgent>()))
 
                 .Register(new CoverageReviewAgent(
-                    factory.Create(m.TestWriter), parser, fs,
+                    factory.Create(m.TestWriter), prompts, parser, fs,
                     lf.CreateLogger<CoverageReviewAgent>()))
 
                 .Register(new MutationTestAgent(
-                    factory.Create(m.TestWriter), stryker,
+                    factory.Create(m.TestWriter), prompts, stryker,
                     lf.CreateLogger<MutationTestAgent>()))
 
                 .Register(new LogicAnalysisAgent(
-                    factory.Create(m.LogicAnalysis),
+                    factory.Create(m.LogicAnalysis), prompts,
                     lf.CreateLogger<LogicAnalysisAgent>()))
 
                 .Register(new QualityAnalysisAgent(
-                    factory.Create(m.QualityAnalysis),
+                    factory.Create(m.QualityAnalysis), prompts,
                     lf.CreateLogger<QualityAnalysisAgent>()))
 
                 .Register(new ArchitectureReviewAgent(
-                    factory.Create(m.ArchitectureReview),
+                    factory.Create(m.ArchitectureReview), prompts,
                     lf.CreateLogger<ArchitectureReviewAgent>()))
 
                 .Register(new ReportGeneratorAgent(
-                    factory.Create(m.ReportGenerator), fs,
+                    factory.Create(m.ReportGenerator), prompts, fs,
                     lf.CreateLogger<ReportGeneratorAgent>()));
         });
 
@@ -180,6 +185,7 @@ public static class ServiceCollectionExtensions
 
     private static IServiceCollection AddPipelineServicesInternal(this IServiceCollection services)
     {
+        services.AddSingleton<PromptRepository>();
         services.AddSingleton<AgentPipeline>();
         services.AddSingleton<TestProjectScaffolder>();
         services.AddSingleton<PipelineStateManager>();
@@ -227,13 +233,13 @@ public class OllamaOrRemoteChatClientFactory : IChatClientFactory
                 new Uri(_config.Llm.BaseUrl),
                 modelId),                          // ← usa o modelo do agente
 
-            //"openai" => new Microsoft.Extensions.AI.OpenAIChatClient(
+            //"openai" => new OpenAIChatClient(
             //    new OpenAIClient(
             //        new System.ClientModel.ApiKeyCredential(
             //            RequireEnv("OPENAI_API_KEY"))),
             //    modelId),
 
-            //"azure" => new Microsoft.Extensions.AI.OpenAIChatClient(
+            //"azure" => new OpenAIChatClient(
             //    new AzureOpenAIClient(
             //        new Uri(RequireEnv("AZURE_OPENAI_ENDPOINT")),
             //        new AzureKeyCredential(RequireEnv("AZURE_OPENAI_KEY"))),

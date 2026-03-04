@@ -11,6 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
+	  <PackageReference Include="coverlet.collector" Version="8.0.0">
+	    <PrivateAssets>all</PrivateAssets>
+	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	  </PackageReference>
 	  <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-rc2" />
 	  <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
 	  <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0-2.final">
