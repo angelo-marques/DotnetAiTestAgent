@@ -113,6 +113,19 @@ public class CompileFixAgent : BaseAgent<CompileFixRequest, CompileResultRespons
         foreach (var file in csFiles)
         {
             var original = await File.ReadAllTextAsync(file, Utf8NoBom, ct);
+
+            // PRIORIDADE MAXIMA: normaliza newlines antes de qualquer outro patch.
+            // Quando o LLM retorna "\n" literal (dois chars) em vez de quebra real,
+            // o arquivo inteiro fica em 1 linha causando centenas de erros CS1002/CS1044.
+            var normalized = NormalizeNewlines(original);
+            if (normalized != original)
+            {
+                await File.WriteAllTextAsync(file, normalized, Utf8NoBom, ct);
+                Logger.LogInformation("[{A}] Newlines normalizados: {F}", Name, Path.GetFileName(file));
+                original = normalized;
+                count++;
+            }
+
             var patched = ApplyPatterns(original, buildOutput, file);
 
             if (patched == original) continue;
@@ -128,6 +141,10 @@ public class CompileFixAgent : BaseAgent<CompileFixRequest, CompileResultRespons
     private string ApplyPatterns(string code, string buildOutput, string filePath)
     {
         var fileName = Path.GetFileName(filePath);
+
+        // @@ duplo arroba -> @ simples (CS9008: sequencia @ nao permitida)
+        if (code.Contains("@@"))
+            code = code.Replace("@@", "@");
 
         // NUnit [Values] → xUnit [InlineData]
         if (buildOutput.Contains(fileName) && buildOutput.Contains("ValuesAttribute"))
@@ -177,6 +194,19 @@ public class CompileFixAgent : BaseAgent<CompileFixRequest, CompileResultRespons
         }
 
         return changed ? string.Join('\n', cleaned) : code;
+    }
+
+    // Normaliza TODAS as variantes de newline que o LLM produz.
+    // "\n" literal (barra+n, 2 chars) -> newline real: corrige arquivos em 1 linha unica
+    private static string NormalizeNewlines(string raw)
+    {
+        var s = raw;
+        s = s.Replace("\\r\\n", "\n");
+        s = s.Replace("\\n", "\n");
+        s = s.Replace("\\r", "\n");
+        s = s.Replace("\r\n", "\n");
+        s = s.Replace("\r", "\n");
+        return s;
     }
 
     private static string FixInlineDataLine(string line)

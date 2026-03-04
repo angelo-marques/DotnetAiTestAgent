@@ -4,15 +4,6 @@ using System.Text.RegularExpressions;
 
 namespace DotnetAiTestAgent.Infrastructure.Plugins;
 
-/// <summary>
-/// Acesso ao sistema de arquivos do projeto.
-///
-/// Leitura → sempre da SourcePath (código real a analisar)
-/// Escrita → sempre da OutputPath (onde os artefatos gerados vão)
-///
-/// ENCODING: todos os arquivos .cs são lidos e escritos em UTF-8 sem BOM.
-/// Isso evita corrupção de caracteres acentuados no Windows (ã → ├ú).
-/// </summary>
 public class FileSystemPlugin
 {
     private static readonly Encoding Utf8NoBom =
@@ -90,38 +81,59 @@ public class FileSystemPlugin
         _logger.LogDebug("ai-test-reports/{R}", reportName);
     }
 
-    // SanitizeCSharp: remove artefatos de markdown do output do LLM
-    // 1. Code fences (```) -> linha descartada
-    // 2. Backticks inline -> string literal ou identifier (corrige CS1056)
-    // 3. Bold/italic: **x** / *x* -> x
-    // 4. Markdown headers: ## Titulo -> // Titulo
-    // 5. Blockquotes: > texto -> // texto
-    // 6. Epilogo de texto apos o ultimo } ou ;
+    // SanitizeCSharp: limpa TODOS os artefatos do LLM antes de salvar o .cs
+    //
+    // PROBLEMAS TRATADOS:
+    //   1. Newlines literais "\n" (dois chars: barra+n) em vez de quebra real
+    //      -> causa erros na linha 1 com colunas altissimas (ex: coluna 264)
+    //      -> o LLM serializa o codigo como JSON interno e escapa as quebras
+    //   2. \r\n e \r sozinhos -> normaliza para \n real
+    //   3. Code fences: linhas com ``` -> descartadas
+    //   4. Backticks inline: `valor` -> "valor" (corrige CS1056)
+    //   5. @@ duplo arroba -> @ simples (corrige CS9008)
+    //   6. Bold/italic markdown: **x** / *x* -> x
+    //   7. Headers markdown: ## Titulo -> // Titulo
+    //   8. Blockquotes: > texto -> // texto
+    //   9. Epilogo de texto apos o ultimo } ou ;
     private string SanitizeCSharp(string raw, string fileName)
     {
         if (string.IsNullOrWhiteSpace(raw)) return raw;
 
-        var lines = raw.Split('\n');
+        // PASSO 1: normaliza newlines
+        // O Falcon3 frequentemente retorna o codigo com "\n" literal (dois chars)
+        // em vez de quebra de linha real. Isso faz TODO o arquivo ficar em 1 linha.
+        var normalized = NormalizeNewlines(raw);
+
+        var lines = normalized.Split('\n');
         var kept = new System.Collections.Generic.List<string>(lines.Length);
 
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
 
+            // PASSO 2: descarta code fences
             if (trimmed.StartsWith("```"))
                 continue;
 
             var p = line;
 
+            // PASSO 3: backticks inline -> corrige CS1056
             if (p.Contains('`'))
                 p = FixInlineBackticks(p);
 
+            // PASSO 4: @@ duplo arroba -> @ simples (corrige CS9008)
+            if (p.Contains("@@"))
+                p = p.Replace("@@", "@");
+
+            // PASSO 5: bold/italic markdown
             if (p.Contains('*'))
                 p = Regex.Replace(p, @"\*{1,2}([^*\n]+)\*{1,2}", "$1");
 
+            // PASSO 6: headers markdown -> comentario C#
             if (trimmed.StartsWith("## ") || trimmed.StartsWith("# "))
                 p = "// " + trimmed.TrimStart('#').Trim();
 
+            // PASSO 7: blockquotes -> comentario C#
             if (trimmed.StartsWith("> "))
                 p = "// " + trimmed[2..];
 
@@ -130,6 +142,7 @@ public class FileSystemPlugin
 
         var joined = string.Join('\n', kept).Trim();
 
+        // PASSO 8: remove epilogo de texto apos o ultimo } ou ;
         var lastClose = Math.Max(joined.LastIndexOf('}'), joined.LastIndexOf(';'));
         if (lastClose > 0 && lastClose < joined.Length - 2)
         {
@@ -141,12 +154,44 @@ public class FileSystemPlugin
         var result = joined.Trim();
 
         if (result.Length < raw.Length * 0.9)
-            _logger.LogDebug("Markdown removido de {F}: {B}->{A} chars",
+            _logger.LogDebug("LLM output sanitizado: {F} ({B}->{A} chars)",
                 fileName, raw.Length, result.Length);
 
         return result;
     }
 
+    // Normaliza TODAS as variantes de newline que o LLM pode produzir:
+    //
+    //   "\\n"  (4 chars: dois backslashes + n) -> newline real
+    //            ocorre quando o modelo escapa duas vezes
+    //   "\n"    (2 chars: backslash + n literal) -> newline real
+    //            ocorre quando o modelo serializa o codigo como texto JSON
+    //   "\r\n" -> newline real (Windows CRLF serializado)
+    //   "\r"    -> newline real (Mac CR antigo)
+    //   "\r" real (carriage return) -> newline
+    private static string NormalizeNewlines(string raw)
+    {
+        // Substitui sequencias literais de escape (texto, nao chars de controle)
+        // Ordem importa: trata o mais longo primeiro
+        var s = raw;
+
+        // "\\n" literal (4 chars) -> newline
+        s = s.Replace("\\r\\n", "\n");
+        s = s.Replace("\\n", "\n");
+        s = s.Replace("\\r", "\n");
+
+        // Normaliza CRLF e CR reais para LF
+        s = s.Replace("\r\n", "\n");
+        s = s.Replace("\r", "\n");
+
+        return s;
+    }
+
+    // Corrige backticks inline numa linha de codigo C#.
+    // Em comentarios: remove backtick, mantém conteudo
+    // Em contexto de valor (=, (, ,, [, :): converte para string literal
+    // Identifier puro: remove backtick, mantém identifier
+    // Backtick solto sem par: remove
     private static string FixInlineBackticks(string line)
     {
         var trimmed = line.TrimStart();
@@ -166,7 +211,7 @@ public class FileSystemPlugin
             if (isValueCtx)
             {
                 bool isId = Regex.IsMatch(inner, @"^[A-Za-z_][\w.<>\[\], ]*$");
-                return isId ? inner : '"' + inner + '"';
+                return isId ? inner : "\"" + inner + "\"";
             }
             return inner;
         });
@@ -188,3 +233,13 @@ public class FileSystemPlugin
         !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar) &&
         !path.Contains(Path.DirectorySeparatorChar + "tests" + Path.DirectorySeparatorChar);
 }
+
+
+
+
+
+
+
+
+
+
