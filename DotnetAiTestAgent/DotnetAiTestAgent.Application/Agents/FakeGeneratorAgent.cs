@@ -37,7 +37,7 @@ public class FakeGeneratorAgent : BaseAgent<GenerateFakesRequest, FakesGenerated
                 user: $"Interface:\n```csharp\n{iface.SourceCode}\n```",
                 thread, ct);
 
-            var parts = response.Split("===SEPARATOR===");
+            var parts = response.Split($@"//===SEPARATOR===");
             var fakeName = $"Fake{iface.InterfaceName.TrimStart('I')}.cs";
 
             if (parts.Length >= 1)

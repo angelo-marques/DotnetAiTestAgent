@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DotnetAiTestAgent.Application.Pipeline;
 
+
 /// <summary>
 /// Orquestra o pipeline completo de geração de testes.
 ///
@@ -14,17 +15,15 @@ namespace DotnetAiTestAgent.Application.Pipeline;
 /// outputPath → onde os testes gerados, fakes e relatórios serão escritos
 ///
 /// ETAPAS:
-///   [0/10] Scaffolding do projeto de testes (cria .csproj com xunit + coverlet SE não existir)
-///   [1/10] Descoberta de classes e interfaces via Roslyn
-///   [2/10] Geração de Fakes e FakeBuilders
-///   [3/10] Geração de testes xUnit AAA
-///   [4/10] Compilação + auto-correção
-///   [5/10] Execução e debug de testes
-///   [6/10] Loop de cobertura (XML + HTML via reportgenerator)
-///   [7/10] Mutation testing (Stryker.NET)
-///   [8/10] Análise de lógica
-///   [9/10] Análise de qualidade e arquitetura
-///   [10/10] Geração de relatórios Markdown + JSON
+///   [0/8] Scaffolding do projeto de testes (cria .csproj com xunit SE não existir)
+///   [1/8] Descoberta de classes e interfaces via Roslyn
+///   [2/8] Geração de Fakes e FakeBuilders
+///   [3/8] Geração de testes xUnit AAA
+///   [4/8] Compilação + auto-correção
+///   [5/8] Execução e debug de testes
+///   [6/8] Análise de lógica
+///   [7/8] Análise de qualidade e arquitetura
+///   [8/8] Geração de relatório Markdown
 /// </summary>
 
 public class AgentPipeline
@@ -83,19 +82,19 @@ public class AgentPipeline
             await StepGenerateTestsAsync(context, id, new(), ct);
             await StepCompileAsync(context, id, options.MaxRetriesPerAgent, ct);
             await StepDebugTestsAsync(context, id, options.MaxRetriesPerAgent, ct);
-            await StepCoverageLoopAsync(context, id, options, ct);
-            await StepMutationAsync(context, id, ct);
             await StepLogicAnalysisAsync(context, id, ct);
             await StepQualityAndArchitectureAsync(context, id, ct);
             await StepGenerateReportsAsync(context, id, ct);
 
             await _stateManager.SaveAsync(state, sourcePath);
 
-            _logger.LogInformation("✅ Concluído! Cobertura: {C:F1}% | Mutation: {M:F1}%",
-                context.CurrentCoverage, context.MutationScore);
-            _logger.LogInformation("📁 Testes: {O}", Path.Combine(outputPath, "tests"));
-            _logger.LogInformation("📊 HTML:   {H}",
-                Path.Combine(outputPath, "ai-test-reports", "coverage-html", "index.html"));
+            _logger.LogInformation("✅ Concluído! Testes: {T} | Bugs: {B} | Issues: {I}",
+                context.GeneratedTests.Count,
+                context.LogicIssues.Count,
+                context.QualityIssues.Count);
+            _logger.LogInformation("📁 Testes:    {O}", Path.Combine(outputPath, "tests"));
+            _logger.LogInformation("📄 Relatório: {R}",
+                Path.Combine(outputPath, "ai-test-reports", "test-report.md"));
         }
         catch (Exception ex)
         {
@@ -109,13 +108,13 @@ public class AgentPipeline
 
     private async Task StepScaffoldAsync(AgentContext ctx, CancellationToken ct)
     {
-        _logger.LogInformation("[0/10] Preparando projeto de testes em {O}/tests...", ctx.OutputPath);
+        _logger.LogInformation("[0/8] Preparando projeto de testes em {O}/tests...", ctx.OutputPath);
         await _scaffolder.EnsureTestProjectAsync(ctx.SourcePath, ctx.OutputPath);
     }
 
     private async Task StepDiscoverAsync(AgentContext ctx, string id, CancellationToken ct)
     {
-        _logger.LogInformation("[1/10] Descobrindo classes em {S}...", ctx.SourcePath);
+        _logger.LogInformation("[1/8] Descobrindo classes em {S}...", ctx.SourcePath);
         var r = await _runtime.SendAsync<DiscoverProjectRequest, ProjectDiscoveredResponse>(
             new DiscoverProjectRequest(ctx.SourcePath) { CorrelationId = id }, ct);
         ctx.DiscoveredClasses = r.Classes;
@@ -125,7 +124,7 @@ public class AgentPipeline
     private async Task StepGenerateFakesAsync(AgentContext ctx, string id, CancellationToken ct)
     {
         if (!_config.Features.GenerateFakes) return;
-        _logger.LogInformation("[2/10] Gerando Fakes em {O}/tests/Fakes...", ctx.OutputPath);
+        _logger.LogInformation("[2/8] Gerando Fakes em {O}/tests/Fakes...", ctx.OutputPath);
         var r = await _runtime.SendAsync<GenerateFakesRequest, FakesGeneratedResponse>(
             new GenerateFakesRequest(ctx.OutputPath, ctx.DiscoveredInterfaces) { CorrelationId = id }, ct);
         ctx.GeneratedFakes = r.GeneratedFakes;
@@ -136,7 +135,7 @@ public class AgentPipeline
         List<Domain.ValueObjects.CoverageGap> gaps,
         CancellationToken ct)
     {
-        _logger.LogInformation("[3/10] Gerando testes xUnit em {O}/tests...", ctx.OutputPath);
+        _logger.LogInformation("[3/8] Gerando testes xUnit em {O}/tests...", ctx.OutputPath);
         var r = await _runtime.SendAsync<GenerateTestsRequest, TestsGeneratedResponse>(
             new GenerateTestsRequest(ctx.OutputPath, ctx.DiscoveredClasses, gaps) { CorrelationId = id }, ct);
         ctx.GeneratedTests = r.GeneratedTests;
@@ -144,7 +143,7 @@ public class AgentPipeline
 
     private async Task StepCompileAsync(AgentContext ctx, string id, int maxRetries, CancellationToken ct)
     {
-        _logger.LogInformation("[4/10] Compilando testes...");
+        _logger.LogInformation("[4/8] Compilando testes...");
         await _runtime.SendWithRetryAsync<CompileFixRequest, CompileResultResponse>(
             new CompileFixRequest(ctx.OutputPath, await _dotnet.BuildAsync(ctx.OutputPath))
             { CorrelationId = id },
@@ -153,60 +152,20 @@ public class AgentPipeline
 
     private async Task StepDebugTestsAsync(AgentContext ctx, string id, int maxRetries, CancellationToken ct)
     {
-        _logger.LogInformation("[5/10] Executando testes...");
+        _logger.LogInformation("[5/8] Executando testes...");
+        var testOutput = await _dotnet.RunTestsAsync(ctx.OutputPath);
+        ctx.TestRunOutput = testOutput;
+
         var r = await _runtime.SendWithRetryAsync<DebugTestsRequest, TestsResultResponse>(
-            new DebugTestsRequest(ctx.OutputPath, await _dotnet.RunTestsAsync(ctx.OutputPath))
-            { CorrelationId = id },
+            new DebugTestsRequest(ctx.OutputPath, testOutput) { CorrelationId = id },
             maxRetries, r => r.AllPassed, ct);
         ctx.LogicIssues.AddRange(r.BugsFound);
-    }
-
-    private async Task StepCoverageLoopAsync(
-        AgentContext ctx, string id, PipelineOptions opts, CancellationToken ct)
-    {
-        _logger.LogInformation("[6/10] Cobertura (alvo {T}%)...", opts.CoverageThreshold);
-
-        await _dotnet.RunTestsWithCoverageAsync(ctx.OutputPath);
-
-        for (int i = 1; i <= opts.MaxRetriesPerAgent; i++)
-        {
-            var r = await _runtime.SendAsync<ReviewCoverageRequest, CoverageResultResponse>(
-                new ReviewCoverageRequest(ctx.OutputPath, opts.CoverageThreshold)
-                { CorrelationId = id }, ct);
-
-            ctx.CurrentCoverage = r.Coverage;
-
-            if (r.Coverage >= opts.CoverageThreshold)
-            {
-                _logger.LogInformation("  ✓ Cobertura: {C:F1}%", r.Coverage);
-                return;
-            }
-
-            _logger.LogWarning("  ↩ {C:F1}% < {T}% — complementando testes ({I}/{M})",
-                r.Coverage, opts.CoverageThreshold, i, opts.MaxRetriesPerAgent);
-
-            if (i < opts.MaxRetriesPerAgent)
-            {
-                ctx.CoverageGaps = r.Gaps;
-                await StepGenerateTestsAsync(ctx, id, r.Gaps, ct);
-                await StepCompileAsync(ctx, id, maxRetries: 2, ct);
-                await _dotnet.RunTestsWithCoverageAsync(ctx.OutputPath);
-            }
-        }
-    }
-
-    private async Task StepMutationAsync(AgentContext ctx, string id, CancellationToken ct)
-    {
-        if (!_config.Features.MutationTesting) return;
-        _logger.LogInformation("[7/10] Mutation testing (Stryker.NET)...");
-        var r = await _runtime.SendAsync<RunMutationRequest, MutationResultResponse>(
-            new RunMutationRequest(ctx.OutputPath) { CorrelationId = id }, ct);
-        ctx.MutationScore = r.Score;
+        ctx.TestsAllPassed = r.AllPassed;
     }
 
     private async Task StepLogicAnalysisAsync(AgentContext ctx, string id, CancellationToken ct)
     {
-        _logger.LogInformation("[8/10] Analisando lógica em {S}...", ctx.SourcePath);
+        _logger.LogInformation("[6/8] Analisando lógica em {S}...", ctx.SourcePath);
         var r = await _runtime.SendAsync<AnalyzeLogicRequest, LogicAnalysisResponse>(
             new AnalyzeLogicRequest(ctx.SourcePath, ctx.DiscoveredClasses) { CorrelationId = id }, ct);
         ctx.LogicIssues.AddRange(r.Issues);
@@ -214,7 +173,7 @@ public class AgentPipeline
 
     private async Task StepQualityAndArchitectureAsync(AgentContext ctx, string id, CancellationToken ct)
     {
-        _logger.LogInformation("[9/10] Qualidade e arquitetura...");
+        _logger.LogInformation("[7/8] Qualidade e arquitetura...");
         var q = await _runtime.SendAsync<AnalyzeQualityRequest, QualityAnalysisResponse>(
             new AnalyzeQualityRequest(ctx.SourcePath, ctx.DiscoveredClasses) { CorrelationId = id }, ct);
         ctx.QualityIssues = q.Issues;
@@ -229,7 +188,7 @@ public class AgentPipeline
 
     private async Task StepGenerateReportsAsync(AgentContext ctx, string id, CancellationToken ct)
     {
-        _logger.LogInformation("[10/10] Gerando relatórios em {O}/ai-test-reports...", ctx.OutputPath);
+        _logger.LogInformation("[8/8] Gerando relatório em {O}/ai-test-reports...", ctx.OutputPath);
         await _runtime.SendAsync<GenerateReportsRequest, ReportsGeneratedResponse>(
             new GenerateReportsRequest(ctx) { CorrelationId = id }, ct);
     }
@@ -246,8 +205,8 @@ public class AgentPipeline
         _logger.LogInformation("  dotnet-ai-test-agent  |  Microsoft.Extensions.AI");
         _logger.LogInformation("  📂 Fonte:   {S}", source);
         _logger.LogInformation("  📁 Saída:   {O}", output);
-        _logger.LogInformation("  Cobertura alvo: {T}% | Workers: {W} | Retries: {R}",
-            opts.CoverageThreshold, opts.ParallelWorkers, opts.MaxRetriesPerAgent);
+        _logger.LogInformation("  Cobertura alvo: removida | Workers: {W} | Retries: {R}",
+            opts.ParallelWorkers, opts.MaxRetriesPerAgent);
         _logger.LogInformation("═══════════════════════════════════════════════════");
     }
 }

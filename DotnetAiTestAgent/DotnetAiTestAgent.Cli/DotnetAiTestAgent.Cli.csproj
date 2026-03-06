@@ -29,12 +29,18 @@
     <PackageReference Include="Serilog.AspNetCore.Plus" Version="10.1.0" />
     <PackageReference Include="Serilog.Enrichers.Process" Version="3.0.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.4" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="10.1.4" />
     <PackageReference Include="System.CommandLine" Version="3.0.0-preview.1.26104.118" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetAiTestAgent.Application\DotnetAiTestAgent.Application.csproj" />
     <ProjectReference Include="..\DotnetAiTestAgent.ServiceDefaults\DotnetAiTestAgent.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="logs\" />
   </ItemGroup>
 
 </Project>

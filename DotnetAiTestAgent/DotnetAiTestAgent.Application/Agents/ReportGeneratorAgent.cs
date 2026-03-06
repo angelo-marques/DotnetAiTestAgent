@@ -12,9 +12,9 @@ using Microsoft.Extensions.Logging;
 namespace DotnetAiTestAgent.Application.Agents;
 
 /// <summary>
-/// Gera os relatórios finais do pipeline em Markdown e JSON.
-/// Delega a construção de cada relatório ao ReportBuilder (Infrastructure),
-/// mantendo o agente focado apenas em orquestrar a geração e salvar os arquivos.
+/// Gera o relatório final do pipeline em Markdown.
+/// Produz um único arquivo test-report.md com estatísticas gerais,
+/// cobertura por classe e sugestões de melhoria priorizadas.
 /// </summary>
 public class ReportGeneratorAgent : BaseAgent<GenerateReportsRequest, ReportsGeneratedResponse>
 {
@@ -35,25 +35,10 @@ public class ReportGeneratorAgent : BaseAgent<GenerateReportsRequest, ReportsGen
         var ctx = request.Context;
         var builder = new ReportBuilder(ctx);
 
-        var reports = new Dictionary<string, string>
-        {
-            ["00-executive-summary.md"] = builder.BuildExecutiveSummary(),
-            ["02-logic-issues.md"] = builder.BuildLogicReport(),
-            ["03-quality-analysis.md"] = builder.BuildQualityReport(),
-            ["05-architecture-issues.md"] = builder.BuildArchitectureReport(),
-            ["06-improvement-suggestions.md"] = builder.BuildImprovements(),
-            ["07-technical-debt.md"] = builder.BuildDebtReport(),
-            ["08-full-summary.json"] = builder.BuildJsonSummary(),
-        };
+        const string reportName = "test-report.md";
+        await _fileSystem.WriteReportAsync(reportName, builder.BuildTestReport());
+        Logger.LogInformation("[{A}] ✓ {F}", Name, reportName);
 
-        var paths = new List<string>();
-        foreach (var (name, content) in reports)
-        {
-            await _fileSystem.WriteReportAsync(name, content);
-            paths.Add(name);
-            Logger.LogInformation("[{A}] ✓ {F}", Name, name);
-        }
-
-        return new ReportsGeneratedResponse(paths);
+        return new ReportsGeneratedResponse([reportName]);
     }
 }

@@ -1,14 +1,17 @@
-using System.Text.Json;
 using DotnetAiTestAgent.Application.Pipeline;
 using DotnetAiTestAgent.Domain.Enums;
+using System.Text;
+using System.Text.Json;
 
 namespace DotnetAiTestAgent.Application.Reports;
 
 
 /// <summary>
-/// Constrói o conteúdo de cada relatório Markdown e JSON.
-/// Extraído do ReportGeneratorAgent para manter o agente pequeno
-/// e o conteúdo dos relatórios testável de forma isolada.
+/// Constrói o conteúdo do relatório Markdown de testes.
+/// Produz um único test-report.md com:
+///   - Estatísticas gerais (testes gerados, fakes, issues)
+///   - Tabela de classes e seus métodos de teste
+///   - Sugestões de melhoria priorizadas por severidade
 /// </summary>
 public class ReportBuilder
 {
@@ -22,27 +25,171 @@ public class ReportBuilder
                           + ctx.QualityIssues.Sum(i => i.EstimatedFixMinutes);
     }
 
-    public string BuildExecutiveSummary() => $"""
-        # Resumo Executivo — dotnet-ai-test-agent
-        **Data:** {DateTime.Now:dd/MM/yyyy HH:mm} | **Projeto:** {_ctx.SourcePath}
+    // ── Relatório principal ───────────────────────────────────────────────────
 
-        ## Métricas Gerais
+    /// <summary>
+    /// Gera o test-report.md completo com 3 seções:
+    ///   1. Estatísticas gerais
+    ///   2. Classes e métodos com testes
+    ///   3. Sugestões de melhoria priorizadas
+    /// </summary>
+    public string BuildTestReport()
+    {
+        var sb = new StringBuilder();
 
-        | Métrica | Valor |
-        |---|---|
-        | Cobertura de linha | {_ctx.CurrentCoverage:F1}% |
-        | Mutation Score | {_ctx.MutationScore:F1}% |
-        | Classes analisadas | {_ctx.DiscoveredClasses.Count} |
-        | Testes gerados | {_ctx.GeneratedTests.Count} |
-        | Fakes gerados | {_ctx.GeneratedFakes.Count} |
-        | Problemas de lógica | {_ctx.LogicIssues.Count} |
-        | Problemas de qualidade | {_ctx.QualityIssues.Count} |
-        | Problemas de arquitetura | {_ctx.ArchitectureIssues.Count} |
-        | Dívida técnica total | {Math.Round(_totalDebtMinutes / 60.0, 1)}h |
+        sb.AppendLine($"# Relatório de Testes — dotnet-ai-test-agent");
+        sb.AppendLine($"**Data:** {DateTime.Now:dd/MM/yyyy HH:mm}  ");
+        sb.AppendLine($"**Projeto:** `{_ctx.SourcePath}`");
+        sb.AppendLine();
 
-        ## Issues Críticos
-        {CriticalIssuesList()}
-        """;
+        sb.Append(BuildStatsSection());
+        sb.AppendLine();
+        sb.Append(BuildClassCoverageSection());
+        sb.AppendLine();
+        sb.Append(BuildImprovementsSection());
+
+        return sb.ToString().Trim();
+    }
+
+    // ── Seção 1: Estatísticas ─────────────────────────────────────────────────
+
+    private string BuildStatsSection()
+    {
+        var testStatus = _ctx.TestsAllPassed ? "✅ Todos passaram" : "⚠️ Há falhas";
+        var issueStatus = _ctx.LogicIssues.Count == 0 && _ctx.QualityIssues.Count == 0
+            ? "✅ Nenhum"
+            : $"⚠️ {_ctx.LogicIssues.Count + _ctx.QualityIssues.Count} encontrados";
+        var debtHours = Math.Round(_totalDebtMinutes / 60.0, 1);
+
+        return $"""
+            ## 📊 Estatísticas Gerais
+
+            | Métrica | Valor |
+            |---|---|
+            | Classes analisadas | {_ctx.DiscoveredClasses.Count} |
+            | Testes gerados | {_ctx.GeneratedTests.Count} |
+            | Fakes gerados | {_ctx.GeneratedFakes.Count} |
+            | Status dos testes | {testStatus} |
+            | Problemas de lógica | {_ctx.LogicIssues.Count} |
+            | Problemas de qualidade | {_ctx.QualityIssues.Count} |
+            | Dívida técnica estimada | {debtHours}h |
+            | Issues críticos | {_ctx.LogicIssues.Count(i => i.Severity == IssueSeverity.Critical)} |
+
+            """;
+    }
+
+    // ── Seção 2: Classes e métodos ────────────────────────────────────────────
+
+    private string BuildClassCoverageSection()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## 🧪 Classes e Métodos com Testes");
+        sb.AppendLine();
+
+        if (!_ctx.DiscoveredClasses.Any())
+        {
+            sb.AppendLine("_Nenhuma classe descoberta._");
+            return sb.ToString();
+        }
+
+        // Índice dos arquivos de teste gerados para cruzamento rápido
+        var testFileNames = _ctx.GeneratedTests
+            .Select(t => Path.GetFileNameWithoutExtension(t).Replace("Tests", "").ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var cls in _ctx.DiscoveredClasses.OrderBy(c => c.ClassName))
+        {
+            bool hasTest = testFileNames.Contains(cls.ClassName.ToLowerInvariant());
+            var icon = hasTest ? "✅" : "⬜";
+
+            sb.AppendLine($"### {icon} `{cls.ClassName}`");
+
+            if (cls.PublicMethods.Any())
+            {
+                sb.AppendLine();
+                sb.AppendLine("| Método | Retorno | Testado |");
+                sb.AppendLine("|---|---|---|");
+
+                foreach (var method in cls.PublicMethods.OrderBy(m => m.Name))
+                {
+                    var methodTested = hasTest ? "✅" : "—";
+                    sb.AppendLine($"| `{method.Name}` | `{method.ReturnType}` | {methodTested} |");
+                }
+
+                sb.AppendLine();
+            }
+            else
+            {
+                sb.AppendLine("_Sem métodos públicos detectados._");
+                sb.AppendLine();
+            }
+        }
+
+        // Resumo de cobertura por contagem
+        var coveredCount = _ctx.DiscoveredClasses.Count(c =>
+            testFileNames.Contains(c.ClassName.ToLowerInvariant()));
+        var totalCount = _ctx.DiscoveredClasses.Count;
+        var pct = totalCount > 0 ? Math.Round(coveredCount * 100.0 / totalCount, 1) : 0;
+
+        sb.AppendLine($"> **{coveredCount}/{totalCount} classes com testes gerados ({pct}%)**");
+
+        return sb.ToString();
+    }
+
+    // ── Seção 3: Sugestões de melhoria ────────────────────────────────────────
+
+    private string BuildImprovementsSection()
+    {
+        var all = _ctx.LogicIssues
+            .Select(i => (i.Severity, i.ClassName, i.Description, i.Suggestion, i.EstimatedFixMinutes, Source: "Lógica"))
+            .Concat(_ctx.QualityIssues
+                .Select(i => (i.Severity, i.ClassName, i.Description, i.Suggestion, i.EstimatedFixMinutes, Source: "Qualidade")))
+            .OrderByDescending(i => i.Severity)
+            .ToList();
+
+        if (!all.Any())
+        {
+            return $"""
+                ## 💡 Sugestões de Melhoria
+
+                ✅ Nenhum problema de lógica ou qualidade encontrado.
+
+                """;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("## 💡 Sugestões de Melhoria");
+        sb.AppendLine();
+
+        void AppendGroup(string label, string emoji, IEnumerable<(IssueSeverity, string ClassName, string Desc, string Sug, int Min, string Src)> items)
+        {
+            var list = items.ToList();
+            if (!list.Any()) return;
+
+            sb.AppendLine($"### {emoji} {label} ({list.Count})");
+            sb.AppendLine();
+            foreach (var (_, cls, desc, sug, min, src) in list)
+            {
+                sb.AppendLine($"- **[{src}]** `{cls}` — {desc}");
+                sb.AppendLine($"  → _{sug}_ ⏱ {min}min");
+            }
+            sb.AppendLine();
+        }
+
+        AppendGroup("Alta prioridade", "🔴", all.Where(i => i.Severity >= IssueSeverity.High));
+        AppendGroup("Média prioridade", "🟡", all.Where(i => i.Severity == IssueSeverity.Medium));
+        AppendGroup("Baixa prioridade", "🟢", all.Where(i => i.Severity <= IssueSeverity.Low));
+
+        var totalMin = all.Sum(i => i.EstimatedFixMinutes);
+        sb.AppendLine($"> **Dívida técnica total: {Math.Round(totalMin / 60.0, 1)}h** ({totalMin}min)");
+
+        return sb.ToString();
+    }
+
+    // ── Métodos legados mantidos para compatibilidade ─────────────────────────
+    // Podem ser removidos se não houver outra referência no projeto.
+
+    public string BuildExecutiveSummary() => BuildTestReport();
 
     public string BuildLogicReport()
     {
@@ -86,28 +233,7 @@ public class ReportBuilder
         return $"# Arquitetura ({_ctx.ArchitectureIssues.Count})\n\n{string.Join("\n\n---\n\n", items)}";
     }
 
-    public string BuildImprovements()
-    {
-        var all = _ctx.LogicIssues
-            .Select(i => (i.Severity, i.Description, i.Suggestion, i.EstimatedFixMinutes))
-            .Concat(_ctx.QualityIssues
-                .Select(i => (i.Severity, i.Description, i.Suggestion, i.EstimatedFixMinutes)))
-            .OrderByDescending(i => i.Severity)
-            .ToList();
-
-        static string Section(string label, IEnumerable<(IssueSeverity, string Desc, string Sug, int Min)> items) =>
-            $"## {label}\n{string.Join("\n", items.Select(i => $"- {i.Desc} → **{i.Sug}** ({i.Min}min)"))}";
-
-        return $"""
-            # Sugestões de Melhoria Priorizadas
-
-            {Section("🔴 Alta prioridade", all.Where(i => i.Severity >= IssueSeverity.High))}
-
-            {Section("🟡 Média prioridade", all.Where(i => i.Severity == IssueSeverity.Medium))}
-
-            {Section("🟢 Baixa prioridade", all.Where(i => i.Severity <= IssueSeverity.Low))}
-            """;
-    }
+    public string BuildImprovements() => BuildImprovementsSection();
 
     public string BuildDebtReport()
     {
@@ -130,20 +256,13 @@ public class ReportBuilder
         JsonSerializer.Serialize(new
         {
             GeneratedAt = DateTime.UtcNow,
-            Coverage = _ctx.CurrentCoverage,
-            MutationScore = _ctx.MutationScore,
+            TestsGenerated = _ctx.GeneratedTests.Count,
+            FakesGenerated = _ctx.GeneratedFakes.Count,
+            TestsAllPassed = _ctx.TestsAllPassed,
             LogicIssues = _ctx.LogicIssues.Count,
             QualityIssues = _ctx.QualityIssues.Count,
             ArchitectureIssues = _ctx.ArchitectureIssues.Count,
             TechnicalDebtHours = Math.Round(_totalDebtMinutes / 60.0, 1),
             CriticalIssues = _ctx.LogicIssues.Count(i => i.Severity == IssueSeverity.Critical)
         }, new JsonSerializerOptions { WriteIndented = true });
-
-    private string CriticalIssuesList()
-    {
-        var criticals = _ctx.LogicIssues.Where(i => i.Severity == IssueSeverity.Critical).ToList();
-        return criticals.Any()
-            ? string.Join("\n", criticals.Select(i => $"- ❗ `{i.ClassName}.{i.MethodName}` — {i.Description}"))
-            : "_Nenhum issue crítico encontrado_ ✅";
-    }
 }

@@ -7,14 +7,14 @@
     "provider": "ollama",
     "baseUrl": "http://localhost:11434",
     "models": {
-      "testWriter": "falcon3:7b",
-      "fakeGenerator": "falcon3:7b",
-      "compileFix": "falcon3:7b",
-      "testDebug": "falcon3:7b",
-      "logicAnalysis": "falcon3:7b",
-      "qualityAnalysis": "falcon3:7b",
-      "architectureReview": "falcon3:7b",
-      "reportGenerator": "falcon3:7b"
+      "testWriter": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "fakeGenerator": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "compileFix": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "reportGenerator": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "testDebug": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "qualityAnalysis": "deepseek-r1:8b",
+      "architectureReview": "deepseek-r1:8b",
+      "logicAnalysis": "qwen2.5-coder:7b"
     }
   },
   "pipeline": {

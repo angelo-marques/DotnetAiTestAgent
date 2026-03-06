@@ -43,6 +43,9 @@ public class AgentContext
     public List<QualityIssue> QualityIssues { get; set; } = new();
     public List<ArchitectureIssue> ArchitectureIssues { get; set; } = new();
     public List<AgentIssue> PipelineErrors { get; set; } = new();
+
+    public string TestRunOutput { get; set; } = string.Empty;
+    public bool TestsAllPassed { get; set; }
 }
 
 /// <summary>Opções configuráveis via CLI.</summary>
