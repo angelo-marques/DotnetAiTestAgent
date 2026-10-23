@@ -1,5 +1,8 @@
 # 🤖 DotnetAiTestAgent
 
+CLI open-source em .NET 10+ que automatiza a criação, execução, correção e documentação de testes unitários com IA. Pipeline de 11 agentes especializados, análise sintática via Roslyn, geração de testes xUnit (padrão AAA), mutation testing com Stryker.NET e suporte a Ollama, OpenAI e Azure OpenAI.
+
+
 > **Um exército de agentes de IA especializados que escreve, corrige, analisa e documenta testes para o seu projeto .NET — do zero, em minutos, sem você tocar em uma linha.**
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
